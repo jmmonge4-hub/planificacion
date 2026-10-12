@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control Integral de Turnos (Maestro)</title>
+  <style>
+    :root {
+      --primary: #1e3a8a; --primary-light: #dbeafe; --accent: #2563eb; --bg: #f8fafc; --surface: #ffffff;
+      --border: #cbd5e1; --text: #0f172a; --text-muted: #64748b; --weekend-bg: #fee2e2; --weekend-text: #991b1b;
+      --holiday-bg: #fef3c7; --holiday-text: #b45309; --guardia-text: #0f172a; --permission-stripe: rgba(99, 102, 241, 0.18);
+      --permission-text: #3730a3; --btn-save: #059669; --btn-load: #d97706; --btn-auto: #7c3aed; --btn-cyl: #b91c1c;
+      --btn-holiday: #d97706; --btn-permission: #6366f1; --btn-print-month: #0d9488; --btn-print-nominal: #4f46e5;
+      --pending-bg: #f59e0b; --complete-bg: #10b981; --btn-sync: #0284c7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { background-color: var(--bg); color: var(--text); padding: 16px; }
+    .container { width: 100%; max-width: 1600px; margin: 0 auto; background: var(--surface); border-radius: 10px; padding: 16px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; }
+    h1 { font-size: 1.3rem; color: var(--primary); }
+    
+    .header-status { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+    #status-msg { font-size: 0.8rem; font-weight: bold; color: var(--btn-save); display: none; }
+    #last-sync-time { font-size: 0.85rem; color: var(--text-muted); }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    select, input, button { padding: 6px 10px; border-radius: 5px; border: 1px solid var(--border); font-size: 0.85rem; outline: none; background: var(--surface); color: var(--text); }
+    button { background-color: var(--accent); color: white; border: none; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: opacity 0.15s, background-color 0.15s; }
+    button:hover { opacity: 0.9; }
+    button.btn-save { background-color: var(--btn-save); } button.btn-load { background-color: var(--btn-load); } button.btn-auto { background-color: var(--btn-auto); } button.btn-cyl { background-color: var(--btn-cyl); } button.btn-print-month { background-color: var(--btn-print-month); } button.btn-print-nominal { background-color: var(--btn-print-nominal); } button.btn-permission { background-color: var(--btn-permission); } button.secondary { background-color: #e2e8f0; color: #334155; } button.secondary:hover { background-color: #cbd5e1; }
+    button.btn-holiday-toggle { background-color: var(--btn-holiday); } button.btn-holiday-toggle.active-mode { background-color: #b45309; box-shadow: 0 0 0 3px #fde68a; }
+    button.btn-permission.active-mode { background-color: #4338ca; box-shadow: 0 0 0 3px #c7d2fe; }
+    button.btn-pending { background-color: var(--pending-bg); color: white; } button.btn-pending.completed { background-color: #10b981; }
+    button.btn-sync { background-color: var(--btn-sync); }
+    
+    .config-visor { background: #e0e7ff; padding: 4px 10px; border-radius: 6px; border: 1.5px dashed #4f46e5; display:flex; align-items:center; gap:6px; flex-wrap: wrap;}
+    .config-visor label { color: #3730a3; margin:0; cursor:help; }
+    .config-visor select { background: #fff; border-color: #c7d2fe; padding: 4px 6px; font-weight:bold; color: #3730a3;}
+
+    .action-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .worker-inputs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .table-wrapper { width: 100%; overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--border); border-radius: 6px; }
+    table.grid-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: center; font-size: clamp(0.55rem, 1.4vw, 0.75rem); }
+    th, td { border: 1px solid var(--border); padding: 0; height: 30px; vertical-align: middle; overflow: hidden; white-space: nowrap; }
+    .col-worker { width: 160px; text-align: left; padding: 2px 4px; background: #f8fafc; font-size: clamp(0.6rem, 1.3vw, 0.75rem); position: sticky; left: 0; z-index: 2; }
+    thead th { background-color: var(--primary-light); color: var(--primary); font-weight: bold; height: 34px; user-select: none; }
+    thead th.col-worker { z-index: 3; }
+    thead th.th-day-header { cursor: pointer; } thead th.th-day-header:hover { filter: brightness(0.95); }
+    .weekday { font-size: clamp(0.5rem, 1.1vw, 0.65rem); font-weight: normal; display: block; line-height: 1; margin-top: 1px; }
+    .weekend { background-color: var(--weekend-bg); color: var(--weekend-text); }
+    .holiday { background-color: var(--holiday-bg) !important; color: var(--holiday-text) !important; font-weight: bold; }
+    .holiday-cell { background-color: var(--holiday-bg) !important; color: var(--holiday-text) !important; }
+    .cell-btn { width: 100%; height: 100%; border: none; background: transparent; cursor: pointer; font-size: 0.8rem; font-weight: 900; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; transition: background 0.15s; }
+    .cell-btn:hover { background-color: rgba(0, 0, 0, 0.05); }
+    .cell-btn.active { background-color: transparent !important; color: var(--guardia-text) !important; }
+    .cell-btn.is-permission { background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--permission-stripe) 4px, var(--permission-stripe) 8px); color: var(--permission-text); }
+    .cell-btn.is-both { background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--permission-stripe) 4px, var(--permission-stripe) 8px) !important; color: #1e3a8a !important; font-weight: 900; text-shadow: 0 0 2px #ffffff; }
+    .worker-name-container { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 0.75rem; overflow: hidden; gap: 2px; }
+    .worker-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1; cursor: pointer; padding: 2px 4px; border-radius: 3px; transition: background 0.2s; }
+    .worker-name-text:hover { background: rgba(0, 0, 0, 0.05); }
+    .worker-actions { display: flex; gap: 2px; align-items: center; flex-shrink: 0; }
+    .btn-worker-action { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 0.75rem; color: #64748b; transition: color 0.15s; }
+    .btn-worker-action:hover { color: var(--primary); } .btn-worker-edit:hover { color: #d97706; } .btn-delete-worker { color: #ef4444; } .btn-delete-worker:hover { color: #b91c1c; font-weight: bold; }
+    .reports-container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+    @media (max-width: 900px) { .reports-container { grid-template-columns: 1fr; } }
+    .report-card { background: var(--bg); padding: 14px; border-radius: 6px; border: 1px solid var(--border); }
+    .report-card h2 { font-size: 0.95rem; margin-bottom: 10px; color: var(--primary); }
+    .report-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.78rem; text-align: center; }
+    .report-table th, .report-table td { border: 1px solid var(--border); padding: 5px 3px; height: 26px; }
+    .report-table th { background: #f1f5f9; color: var(--text); } .report-table th.th-worker, .report-table td.td-worker { text-align: left; padding-left: 6px; font-weight: 600; width: 25%; }
+    .report-table tfoot tr { background-color: #f8fafc; font-weight: bold; border-top: 2px solid var(--border); }
+    .highlight-weekend { background-color: #fef2f2; color: var(--weekend-text); font-weight: 600; } .highlight-holiday { background-color: #fffbeb; color: var(--holiday-text); font-weight: 600; } .highlight-total { background-color: #eff6ff; font-weight: bold; color: #1d4ed8; }
+    @media print { @page { size: landscape; margin: 10mm; } body { padding: 0; background: white; } .container { box-shadow: none; padding: 0; max-width: 100%; } .controls, .header-status, .btn-delete-worker, .worker-actions, .action-bar { display: none !important; } .reports-container { grid-template-columns: 1fr; page-break-before: auto; } .report-card, table, tr, .table-wrapper { page-break-inside: avoid; break-inside: avoid; } .table-wrapper { border: none; overflow: visible; } table.grid-table { font-size: 0.55rem; } .col-worker { width: 90px; font-size: 0.6rem; position: static; } th, td { height: 22px; } }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1 style="display: flex; align-items: center; gap: 10px;">
+        📋 Control y Cuadrante de Turnos 
+        <span style="font-size: 0.6em; background: #fffbeb; color: #d97706; padding: 4px 10px; border-radius: 20px; border: 1px solid #fde68a;">🔥 Enlazado a Firebase</span>
+      </h1>
+      <div class="header-status">
+        <span id="status-msg">✅ Guardado automático activo</span>
+        <span id="last-sync-time">📅 Última sincronización: Cargando...</span>
+        <span id="jsonbin-status" style="font-size:0.85rem;color:#0f766e;"></span>
+      </div>
+    </div>
+    <div class="controls">
+      <div><label for="month-select"><strong>Mes:</strong></label><select id="month-select"></select></div>
+      <div><label for="year-select"><strong>Año:</strong></label><select id="year-select"></select></div>
+      
+      <div class="config-visor">
+        <label title="Selecciona el rango de meses que verán los compañeros">👁️ <strong>Visor Desde:</strong></label>
+        <select id="config-start-month" onchange="guardarConfigVisor()"></select>
+        <select id="config-start-year" onchange="guardarConfigVisor()"></select>
+        
+        <label style="margin-left:8px;"><strong>Hasta:</strong></label>
+        <select id="config-end-month" onchange="guardarConfigVisor()"></select>
+        <select id="config-end-year" onchange="guardarConfigVisor()"></select>
+      </div>
+
+      <button class="btn-sync" onclick="sincronizarDesdeNube()">🔄 Sincronizar</button>
+      <button style="background-color:#dc2626;" title="Restaurar los datos desde la copia de JSONBin (sobrescribe los datos actuales)" onclick="restaurarDesdeJsonbin()">🚨 Restauración de emergencia</button>
+      <button class="btn-cyl" onclick="cargarFestivos()">🏛️ Cargar Festivos</button>
+      <button class="btn-holiday-toggle" id="btn-holiday-mode" onclick="toggleModoFestivos()">🎉 Marcar Festivo</button>
+      <button class="btn-permission" id="btn-permission-mode" onclick="toggleModoPermisos()">🏖️ Marcar Permisos</button>
+      <button class="btn-auto" id="btn-assign-auto" onclick="asignarTurnosAutomaticos()">⚡ Asignar Turnos</button>
+      <button class="btn-print-month" onclick="exportarCalendarioMesA4()">📄 Exportar Cuadrante</button>
+      <button class="btn-print-nominal" onclick="exportarCalendarioNominalA4()">📋 Calendario Nominal</button>
+      <button class="btn-save" onclick="descargarCopiaJSON()">💾 Guardar copia</button>
+      <button class="btn-load" onclick="triggerRecuperar()">📂 Recuperar</button>
+      <input type="file" id="file-input" accept="application/json,.json" style="display:none;">
+      <button onclick="window.print()">🖨️ Imprimir</button>
+    </div>
+  </header>
+
+  <div class="action-bar">
+    <div class="worker-inputs">
+      <input type="text" id="new-worker-name" placeholder="Nombre del médico..." style="width: 200px;" onkeydown="if(event.key==='Enter') agregarTrabajador();">
+      <button type="button" onclick="agregarTrabajador()">➕ Añadir Médico</button>
+      <button type="button" id="btn-pending-days" class="btn-pending" onclick="mostrarDiasPendientes()">⏳ Quedan por asignar: 0 días</button>
+    </div>
+    <div id="mode-hint" style="font-size: 0.8rem; font-weight: 600; display: none;"></div>
+  </div>
+
+  <div class="table-wrapper">
+    <table class="grid-table" id="schedule-table">
+      <thead id="header-row"></thead>
+      <tbody id="schedule-body"></tbody>
+    </table>
+  </div>
+
+  <div class="reports-container">
+    <div class="report-card">
+      <h2 id="report-month-title">Informe Mensual</h2>
+      <table class="report-table">
+        <thead><tr><th class="th-worker">Médico</th><th>L</th><th>M</th><th>X</th><th>J</th><th>V</th><th class="highlight-weekend">S</th><th class="highlight-weekend">D</th><th class="highlight-holiday">Fes</th><th class="highlight-total">Total</th></tr></thead>
+        <tbody id="monthly-report-body"></tbody><tfoot id="monthly-report-footer"></tfoot>
+      </table>
+    </div>
+    <div class="report-card">
+      <h2 id="report-year-title">Informe Anual</h2>
+      <table class="report-table">
+        <thead><tr><th class="th-worker">Médico</th><th>L</th><th>M</th><th>X</th><th>J</th><th>V</th><th class="highlight-weekend">S</th><th class="highlight-weekend">D</th><th class="highlight-holiday">Fes</th><th class="highlight-total">Total</th></tr></thead>
+        <tbody id="annual-report-body"></tbody><tfoot id="annual-report-footer"></tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBLc4g0YhCPMM8x67wA_CttGu-FkqMKg0U",
+    authDomain: "padel-gestor.firebaseapp.com",
+    projectId: "padel-gestor",
+    storageBucket: "padel-gestor.firebasestorage.app",
+    messagingSenderId: "619855548313",
+    appId: "1:619855548313:web:b0c39533eac1b3ec14cd08",
+    measurementId: "G-X3WP1J6NVQ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const documentRef = doc(db, "villarramiel", "turnos_guardias");
+
+  const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const diasSemanaMap = ["D", "L", "M", "X", "J", "V", "S"];
+
+  let trabajadores = ["Dr. García", "Dra. López", "Dr. Martínez", "Dra. Sánchez"];
+  let asignaciones = {};
+  let festivos = {};
+  let permisos = {};
+  
+  let configuracion = { 
+    visorStartMonth: new Date().getMonth(), 
+    visorStartYear: new Date().getFullYear(),
+    visorEndMonth: (new Date().getMonth() + 1) % 12,
+    visorEndYear: new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()
+  };
+  
+  let modoFestivos = false;
+  let modoPermisos = false;
+
+  const monthSelect = document.getElementById("month-select");
+  const yearSelect = document.getElementById("year-select");
+  
+  const configStartMonth = document.getElementById("config-start-month");
+  const configStartYear = document.getElementById("config-start-year");
+  const configEndMonth = document.getElementById("config-end-month");
+  const configEndYear = document.getElementById("config-end-year");
+  
+  const headerRow = document.getElementById("header-row");
+  const scheduleBody = document.getElementById("schedule-body");
+  const monthlyReportBody = document.getElementById("monthly-report-body");
+  const monthlyReportFooter = document.getElementById("monthly-report-footer");
+  const annualReportBody = document.getElementById("annual-report-body");
+  const annualReportFooter = document.getElementById("annual-report-footer");
+  const statusMsg = document.getElementById("status-msg");
+  const lastSyncTime = document.getElementById("last-sync-time");
+  const btnPendingDays = document.getElementById("btn-pending-days");
+  const btnHolidayMode = document.getElementById("btn-holiday-mode");
+  const btnPermissionMode = document.getElementById("btn-permission-mode");
+  const modeHint = document.getElementById("mode-hint");
+  const btnAssignAuto = document.getElementById("btn-assign-auto");
+  const fileInput = document.getElementById("file-input");
+
+  function getKey(year, month) { return `${year}-${month}`; }
+  function getDiasEnMes(year, month) { return new Date(year, month + 1, 0).getDate(); }
+  function esDiaFestivo(year, month, day) { const key = getKey(year, month); return Boolean(festivos[key] && festivos[key].includes(day)); }
+  function tienePermiso(workerIdx, year, month, day) { const key = getKey(year, month); return Boolean(permisos[key] && permisos[key][workerIdx] && permisos[key][workerIdx].includes(day)); }
+  function escapeHtml(str) { if (!str) return ""; const div = document.createElement("div"); div.textContent = str; return div.innerHTML; }
+  
+  function mostrarNotificacion(texto, color = "#059669") {
+    statusMsg.textContent = texto;
+    statusMsg.style.color = color;
+    statusMsg.style.display = "inline-block";
+    clearTimeout(window._notifTimeout);
+    window._notifTimeout = setTimeout(() => { statusMsg.style.display = "none"; }, 3000);
+  }
+
+  function actualizarHoraSincronizacion() {
+    const ahora = new Date();
+    const fecha = ahora.toLocaleDateString('es-ES');
+    const hora = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    lastSyncTime.innerHTML = `📅 Última sincronización: <strong>${fecha} a las ${hora}</strong>`;
+  }
+
+  function guardarConfigVisor() {
+    configuracion.visorStartMonth = parseInt(configStartMonth.value);
+    configuracion.visorStartYear = parseInt(configStartYear.value);
+    configuracion.visorEndMonth = parseInt(configEndMonth.value);
+    configuracion.visorEndYear = parseInt(configEndYear.value);
+    
+    const fechaInicio = new Date(configuracion.visorStartYear, configuracion.visorStartMonth, 1);
+    const fechaFin = new Date(configuracion.visorEndYear, configuracion.visorEndMonth, 1);
+    
+    if (fechaInicio > fechaFin) {
+        mostrarNotificacion("⚠️ El mes de inicio es posterior al de fin", "#ef4444");
+    } else {
+        mostrarNotificacion(`👁️ Rango del visor actualizado`, "#3730a3");
+    }
+    autoGuardar();
+  }
+
+  // ===== Copia redundante automática en JSONBin =====
+  // La Master Key NO se escribe en el código (la página es pública): se pide una vez
+  // por navegador y se guarda en localStorage. Opcional: JSONBIN_KEY_FIJA = "..." (no recomendado).
+  const JSONBIN_API = "https://api.jsonbin.io/v3/b";
+  const JSONBIN_KEY_FIJA = "$2a$10$3uHasKqZPe7.8uwIkU4u7.EOzSEwSvKoa4JP6Lu090qxvd6ods6Dm";
+  const JSONBIN_DEBOUNCE_MS = 4000;
+  const JSONBIN_ID_FIJO = "6ac4ac9fffd5d1605351d435";
+  let jsonbinId = JSONBIN_ID_FIJO || localStorage.getItem("jsonbin_id") || "";
+  let jsonbinTimer = null;
+  let datosCargados = false; // evita que unos datos por defecto sobrescriban la copia buena
+
+  function getJsonbinKey() { return JSONBIN_KEY_FIJA || localStorage.getItem("jsonbin_key") || ""; }
+  function construirPayload() { return { trabajadores, asignaciones, festivos, permisos, configuracion, jsonbinId }; }
+
+  function actualizarEstadoJsonbin(extra) {
+    const el = document.getElementById("jsonbin-status"); if (!el) return;
+    el.textContent = getJsonbinKey() ? `🛡️ JSONBin: ${extra || (jsonbinId ? "activo" : "pendiente de crear bin")}` : "🛡️ JSONBin: sin configurar";
+  }
+
+  function programarBackupJsonbin(inmediato = false) {
+    if (!getJsonbinKey()) return;
+    clearTimeout(jsonbinTimer);
+    jsonbinTimer = setTimeout(backupJsonbin, inmediato ? 200 : JSONBIN_DEBOUNCE_MS);
+  }
+
+  async function backupJsonbin() {
+    const key = getJsonbinKey(); if (!key) return;
+    if (!datosCargados) { actualizarEstadoJsonbin("⚠️ copia en pausa: aún no se han cargado los datos"); return; }
+    const body = JSON.stringify({ ...construirPayload(), _backupAt: new Date().toISOString() });
+    try {
+      let res;
+      if (!jsonbinId) {
+        res = await fetch(JSONBIN_API, { method: "POST", headers: { "Content-Type": "application/json", "X-Master-Key": key, "X-Bin-Private": "true", "X-Bin-Name": "turnos_guardias_villarramiel" }, body });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const j = await res.json();
+        jsonbinId = j.metadata && j.metadata.id;
+        if (!jsonbinId) throw new Error("Respuesta sin id");
+        localStorage.setItem("jsonbin_id", jsonbinId);
+        await setDoc(documentRef, construirPayload()); // guarda el id en Firebase para otros dispositivos
+      } else {
+        res = await fetch(`${JSONBIN_API}/${jsonbinId}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Master-Key": key }, body });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+      }
+      const hora = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+      actualizarEstadoJsonbin(`copia a las ${hora}`);
+    } catch (e) {
+      console.error("Error JSONBin:", e);
+      actualizarEstadoJsonbin("⚠️ error en la última copia");
+      mostrarNotificacion("⚠️ Falló la copia en JSONBin", "#d97706");
+    }
+  }
+
+  function aplicarDatos(p) {
+    if (Array.isArray(p.trabajadores)) trabajadores = p.trabajadores;
+    if (p.asignaciones) asignaciones = p.asignaciones;
+    if (p.festivos) festivos = p.festivos;
+    if (p.permisos) permisos = p.permisos;
+    if (p.configuracion) {
+      configuracion = p.configuracion;
+      configStartMonth.value = configuracion.visorStartMonth;
+      configStartYear.value = configuracion.visorStartYear;
+      configEndMonth.value = configuracion.visorEndMonth;
+      configEndYear.value = configuracion.visorEndYear;
+    }
+  }
+
+  async function leerDeJsonbin() {
+    const key = getJsonbinKey();
+    if (!key || !jsonbinId) throw new Error("JSONBin no configurado");
+    const res = await fetch(`${JSONBIN_API}/${jsonbinId}/latest`, { headers: { "X-Master-Key": key, "X-Bin-Meta": "false" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  }
+
+  async function restaurarDesdeJsonbin() {
+    if (!jsonbinId) { alert("Todavía no existe ninguna copia en JSONBin."); return; }
+    if (!confirm("¿Restaurar los datos desde la copia de JSONBin? Se sobrescribirán los datos actuales (y los de Firebase).")) return;
+    try {
+      const data = await leerDeJsonbin();
+      aplicarDatos(data);
+      await autoGuardar();
+      render();
+      mostrarNotificacion("🛡️ Datos restaurados desde JSONBin", "#0f766e");
+    } catch (e) { console.error(e); alert("No se pudo leer JSONBin: " + e.message); }
+  }
+
+  async function autoGuardar() {
+    try {
+      await setDoc(documentRef, construirPayload());
+      actualizarHoraSincronizacion();
+      mostrarNotificacion("☁️ Guardado en Firebase", "#059669");
+    } catch (e) {
+      console.error("Error al guardar:", e);
+      mostrarNotificacion("❌ Error de red", "#ef4444");
+    }
+    programarBackupJsonbin(); // la copia redundante se intenta aunque Firebase falle
+  }
+
+  async function sincronizarDesdeNube() {
+    mostrarNotificacion("⏳ Sincronizando...", "#d97706");
+    try {
+      const docSnap = await getDoc(documentRef);
+      if (docSnap.exists()) {
+        const p = docSnap.data();
+        if (p && p.jsonbinId && p.jsonbinId !== jsonbinId) { jsonbinId = p.jsonbinId; localStorage.setItem("jsonbin_id", jsonbinId); }
+        if (p && Array.isArray(p.trabajadores)) {
+          trabajadores = p.trabajadores;
+          if (p.asignaciones) asignaciones = p.asignaciones;
+          if (p.festivos) festivos = p.festivos;
+          if (p.permisos) permisos = p.permisos;
+          
+          if (p.configuracion) {
+            configuracion = p.configuracion;
+            if (configuracion.visorMonth !== undefined && configuracion.visorStartMonth === undefined) {
+               configuracion.visorStartMonth = configuracion.visorMonth;
+               configuracion.visorStartYear = configuracion.visorYear;
+               configuracion.visorEndMonth = (configuracion.visorMonth + 1) % 12;
+               configuracion.visorEndYear = configuracion.visorMonth === 11 ? configuracion.visorYear + 1 : configuracion.visorYear;
+               delete configuracion.visorMonth;
+               delete configuracion.visorYear;
+            }
+            configStartMonth.value = configuracion.visorStartMonth;
+            configStartYear.value = configuracion.visorStartYear;
+            configEndMonth.value = configuracion.visorEndMonth;
+            configEndYear.value = configuracion.visorEndYear;
+          }
+          datosCargados = true;
+          actualizarHoraSincronizacion();
+          mostrarNotificacion("✅ Conectado a Firebase", "#059669");
+        }
+      } else {
+          // Firebase vacío: antes de inicializar con datos por defecto, buscar la copia en JSONBin
+          let recuperado = false;
+          try {
+            const data = await leerDeJsonbin();
+            if (data && Array.isArray(data.trabajadores)) {
+              aplicarDatos(data); recuperado = true; datosCargados = true;
+              await autoGuardar();
+              mostrarNotificacion("🛡️ Firebase vacío: datos restaurados desde JSONBin", "#0f766e");
+            }
+          } catch (e3) { console.warn("Sin copia utilizable en JSONBin:", e3); }
+          if (!recuperado) {
+            mostrarNotificacion("⚠️ Inicializando base de datos", "#d97706");
+            datosCargados = true;
+            await autoGuardar();
+          }
+      }
+    } catch (e) {
+      console.error("Error al leer:", e);
+      // Firebase no responde: intentamos recuperar la copia redundante de JSONBin
+      try {
+        const data = await leerDeJsonbin();
+        aplicarDatos(data);
+        datosCargados = true;
+        mostrarNotificacion("🛡️ Firebase no responde: datos cargados desde JSONBin", "#0f766e");
+      } catch (e2) {
+        mostrarNotificacion("❌ Error de lectura", "#ef4444");
+      }
+    }
+    actualizarEstadoJsonbin();
+    render();
+  }
+
+  function init() {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+
+    meses.forEach((m, idx) => {
+      const opt = document.createElement("option"); opt.value = idx; opt.textContent = m;
+      if (idx === currentMonth) opt.selected = true; monthSelect.appendChild(opt);
+      
+      const optStart = document.createElement("option"); optStart.value = idx; optStart.textContent = m;
+      if (idx === configuracion.visorStartMonth) optStart.selected = true; configStartMonth.appendChild(optStart);
+      
+      const optEnd = document.createElement("option"); optEnd.value = idx; optEnd.textContent = m;
+      if (idx === configuracion.visorEndMonth) optEnd.selected = true; configEndMonth.appendChild(optEnd);
+    });
+    
+    for (let y = currentYear - 3; y <= currentYear + 5; y++) {
+      const opt = document.createElement("option"); opt.value = y; opt.textContent = y;
+      if (y === currentYear) opt.selected = true; yearSelect.appendChild(opt);
+      
+      const optStart = document.createElement("option"); optStart.value = y; optStart.textContent = y;
+      if (y === configuracion.visorStartYear) optStart.selected = true; configStartYear.appendChild(optStart);
+      
+      const optEnd = document.createElement("option"); optEnd.value = y; optEnd.textContent = y;
+      if (y === configuracion.visorEndYear) optEnd.selected = true; configEndYear.appendChild(optEnd);
+    }
+
+    monthSelect.addEventListener("change", () => { salirModos(); render(); });
+    yearSelect.addEventListener("change", () => { salirModos(); render(); });
+    fileInput.addEventListener("change", onFileSelected);
+
+    sincronizarDesdeNube().then(() => programarBackupJsonbin(true)); // copia inicial al abrir
+  }
+
+  function salirModos() { if (modoFestivos) toggleModoFestivos(); if (modoPermisos) toggleModoPermisos(); }
+
+  function descargarCopiaJSON() {
+    try {
+      const payload = { trabajadores, asignaciones, festivos, permisos, configuracion };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const hoy = new Date().toISOString().slice(0, 10);
+      a.href = url; a.download = `cuadrante_turnos_${hoy}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      mostrarNotificacion("✓ Backup descargado con éxito.");
+    } catch (e) { alert("Error al descargar respaldo."); }
+  }
+
+  function triggerRecuperar() { fileInput.value = ""; fileInput.click(); }
+  
+  function onFileSelected() {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (Array.isArray(parsed.trabajadores)) trabajadores = parsed.trabajadores;
+        if (parsed.asignaciones) asignaciones = parsed.asignaciones;
+        if (parsed.festivos) festivos = parsed.festivos;
+        if (parsed.permisos) permisos = parsed.permisos;
+        
+        if (parsed.configuracion) {
+           configuracion = parsed.configuracion;
+           if (configuracion.visorMonth !== undefined && configuracion.visorStartMonth === undefined) {
+               configuracion.visorStartMonth = configuracion.visorMonth;
+               configuracion.visorStartYear = configuracion.visorYear;
+               configuracion.visorEndMonth = (configuracion.visorMonth + 1) % 12;
+               configuracion.visorEndYear = configuracion.visorMonth === 11 ? configuracion.visorYear + 1 : configuracion.visorYear;
+               delete configuracion.visorMonth;
+               delete configuracion.visorYear;
+           }
+           configStartMonth.value = configuracion.visorStartMonth;
+           configStartYear.value = configuracion.visorStartYear;
+           configEndMonth.value = configuracion.visorEndMonth;
+           configEndYear.value = configuracion.visorEndYear;
+        }
+        autoGuardar(); 
+        render();
+        mostrarNotificacion("📂 Datos recuperados y subidos a Firebase.", "#059669");
+      } catch (e) { alert("El archivo seleccionado no tiene un formato válido."); }
+    };
+    reader.readAsText(file);
+  }
+
+  function calcularSemanaSanta(year) {
+    const a = year % 19; const b = Math.floor(year / 100); const c = year % 100;
+    const d = Math.floor(b / 4); const e = b % 4; const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3); const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4); const k = c % 4; const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    const pascua = new Date(year, month, day);
+    const jueves = new Date(pascua); jueves.setDate(pascua.getDate() - 3);
+    const viernes = new Date(pascua); viernes.setDate(pascua.getDate() - 2);
+    return { jueves: { mes: jueves.getMonth(), dia: jueves.getDate() }, viernes: { mes: viernes.getMonth(), dia: viernes.getDate() } };
+  }
+
+  function cargarFestivos() {
+    const yearTarget = parseInt(yearSelect.value); const ss = calcularSemanaSanta(yearTarget);
+    for (let m = 0; m < 12; m++) { delete festivos[getKey(yearTarget, m)]; }
+    function addF(m, d) { const k = getKey(yearTarget, m); if (!festivos[k]) festivos[k] = []; if (!festivos[k].includes(d)) festivos[k].push(d); }
+    addF(0, 1); addF(0, 6); addF(3, 23); addF(4, 1); addF(7, 15); addF(9, 12); addF(10, 1); addF(11, 6); addF(11, 8); addF(11, 25);
+    addF(ss.jueves.mes, ss.jueves.dia); addF(ss.viernes.mes, ss.viernes.dia); addF(7, 24); addF(8, 21);
+    autoGuardar(); render(); mostrarNotificacion(`🏛️ Festivos de ${yearTarget} cargados correctamente.`, "#b91c1c");
+  }
+
+  function toggleFestivoDia(day) {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const key = getKey(year, month);
+    if (!festivos[key]) festivos[key] = [];
+    const index = festivos[key].indexOf(day);
+    if (index > -1) festivos[key].splice(index, 1); else festivos[key].push(day);
+    autoGuardar(); render();
+  }
+
+  function toggleModoFestivos() {
+    modoFestivos = !modoFestivos;
+    if (modoFestivos) {
+      modoPermisos = false; btnPermissionMode.classList.remove("active-mode"); btnPermissionMode.textContent = "🏖️ Marcar Permisos";
+      btnHolidayMode.classList.add("active-mode"); btnHolidayMode.textContent = "✓ Salir Festivos";
+      modeHint.textContent = "👉 Modo Festivos: Haz clic en los números de los días (cabecera) para marcar/quitar festivos."; modeHint.style.color = "#b45309"; modeHint.style.display = "block";
+    } else {
+      btnHolidayMode.classList.remove("active-mode"); btnHolidayMode.textContent = "🎉 Marcar Festivo Manual"; modeHint.style.display = "none";
+    }
+    render();
+  }
+
+  function toggleModoPermisos() {
+    modoPermisos = !modoPermisos;
+    if (modoPermisos) {
+      modoFestivos = false; btnHolidayMode.classList.remove("active-mode"); btnHolidayMode.textContent = "🎉 Marcar Festivo Manual";
+      btnPermissionMode.classList.add("active-mode"); btnPermissionMode.textContent = "✓ Salir Permisos";
+      modeHint.textContent = "👉 Modo Permisos: Haz clic en las celdas del médico para marcar/quitar sus días de permisos."; modeHint.style.color = "#4338ca"; modeHint.style.display = "block";
+    } else {
+      btnPermissionMode.classList.remove("active-mode"); btnPermissionMode.textContent = "🏖️ Marcar Permisos"; modeHint.style.display = "none";
+    }
+    render();
+  }
+
+  function handleCellClick(workerIdx, day) { if (modoPermisos) togglePermiso(workerIdx, day); else toggleTurno(workerIdx, day); }
+
+  function toggleTurno(workerIdx, day) {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const key = getKey(year, month);
+    if (!asignaciones[key]) asignaciones[key] = {};
+    if (asignaciones[key][day] === workerIdx) delete asignaciones[key][day]; else asignaciones[key][day] = workerIdx;
+    autoGuardar(); render();
+  }
+
+  function togglePermiso(workerIdx, day) {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const key = getKey(year, month);
+    if (!permisos[key]) permisos[key] = {}; if (!permisos[key][workerIdx]) permisos[key][workerIdx] = [];
+    const index = permisos[key][workerIdx].indexOf(day);
+    if (index > -1) permisos[key][workerIdx].splice(index, 1); else permisos[key][workerIdx].push(day);
+    autoGuardar(); render();
+  }
+
+  function asignarTurnosAutomaticos() {
+    const numWorkers = trabajadores.length; if (numWorkers === 0) { alert("Debes añadir al menos un médico."); return; }
+    const yearTarget = parseInt(yearSelect.value);
+    if (!confirm(`¿Generar calendario equitativo para ${yearTarget}? Se respetarán permisos y se sobrescribirán las asignaciones de ese año.`)) return;
+    const stats = trabajadores.map(() => ({ total: 0, findeOFestivo: 0, laborables: 0, ultimoDiaAsignado: -99 }));
+    let diaGlobal = 0;
+    for (let m = 0; m < 12; m++) {
+      const key = getKey(yearTarget, m); asignaciones[key] = {}; const numDias = getDiasEnMes(yearTarget, m);
+      for (let d = 1; d <= numDias; d++) {
+        diaGlobal++; const fecha = new Date(yearTarget, m, d); const diaSem = fecha.getDay();
+        const esFinde = (diaSem === 0 || diaSem === 6); const esFest = esDiaFestivo(yearTarget, m, d); const esEspecial = esFinde || esFest;
+        let mejorCandidato = 0; let menorPuntaje = Infinity;
+        for (let w = 0; w < numWorkers; w++) {
+          let puntaje = 0;
+          if (tienePermiso(w, yearTarget, m, d)) puntaje += 50000;
+          if (esEspecial) puntaje += stats[w].findeOFestivo * 100; else puntaje += stats[w].laborables * 10;
+          puntaje += stats[w].total * 5;
+          if (stats[w].ultimoDiaAsignado === diaGlobal - 1) puntaje += 800; else if (stats[w].ultimoDiaAsignado === diaGlobal - 2) puntaje += 40;
+          if (puntaje < menorPuntaje) { menorPuntaje = puntaje; mejorCandidato = w; }
+        }
+        asignaciones[key][d] = mejorCandidato; stats[mejorCandidato].total++;
+        if (esEspecial) stats[mejorCandidato].findeOFestivo++; else stats[mejorCandidato].laborables++;
+        stats[mejorCandidato].ultimoDiaAsignado = diaGlobal;
+      }
+    }
+    autoGuardar(); render(); mostrarNotificacion(`⚡ Turnos de ${yearTarget} asignados respetando permisos.`);
+  }
+
+  function agregarTrabajador() {
+    const input = document.getElementById("new-worker-name"); const name = input.value.trim();
+    if (name) { trabajadores.push(name); input.value = ""; autoGuardar(); render(); mostrarNotificacion(`✓ ${name} añadido.`); }
+  }
+
+  function editarTrabajador(idx) {
+    const actual = trabajadores[idx]; const nuevo = prompt(`Modificar nombre del médico:`, actual);
+    if (nuevo !== null) { const limpio = nuevo.trim(); if (limpio && limpio !== actual) { trabajadores[idx] = limpio; autoGuardar(); render(); mostrarNotificacion(`✓ Nombre actualizado a "${limpio}".`); } }
+  }
+
+  function moverTrabajador(idx, delta) {
+    const targetIdx = idx + delta; if (targetIdx < 0 || targetIdx >= trabajadores.length) return;
+    const temp = trabajadores[idx]; trabajadores[idx] = trabajadores[targetIdx]; trabajadores[targetIdx] = temp;
+    for (let k in asignaciones) { for (let d in asignaciones[k]) { if (asignaciones[k][d] === idx) asignaciones[k][d] = targetIdx; else if (asignaciones[k][d] === targetIdx) asignaciones[k][d] = idx; } }
+    for (let k in permisos) { const auxA = permisos[k][idx]; const auxB = permisos[k][targetIdx]; if (auxA !== undefined) permisos[k][targetIdx] = auxA; else delete permisos[k][targetIdx]; if (auxB !== undefined) permisos[k][idx] = auxB; else delete permisos[k][idx]; }
+    autoGuardar(); render();
+  }
+
+  function eliminarTrabajador(idx) {
+    if (confirm(`¿Eliminar a "${trabajadores[idx]}" del cuadrante?`)) {
+      for (let k in asignaciones) { for (let d in asignaciones[k]) { if (asignaciones[k][d] === idx) delete asignaciones[k][d]; else if (asignaciones[k][d] > idx) asignaciones[k][d]--; } }
+      for (let k in permisos) { delete permisos[k][idx]; const newMonthPerm = {}; for (let w in permisos[k]) { const wInt = parseInt(w); if (wInt > idx) newMonthPerm[wInt - 1] = permisos[k][w]; else newMonthPerm[wInt] = permisos[k][w]; } permisos[k] = newMonthPerm; }
+      trabajadores.splice(idx, 1); autoGuardar(); render();
+    }
+  }
+
+  function _calcularDiasPendientes() {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const totalDias = getDiasEnMes(year, month);
+    const key = getKey(year, month); const currentMonthAsign = asignaciones[key] || {}; const pendientes = [];
+    for (let d = 1; d <= totalDias; d++) { if (currentMonthAsign[d] === undefined) pendientes.push(d); }
+    return pendientes;
+  }
+
+  function mostrarDiasPendientes() {
+    const monthName = meses[parseInt(monthSelect.value)]; const year = yearSelect.value; const pendientes = _calcularDiasPendientes();
+    if (pendientes.length === 0) alert(`¡Mes completo! Todos los días de ${monthName} ${year} están cubiertos.`); else alert(`Días pendientes en ${monthName} ${year} (${pendientes.length} días):\n\nDía(s): ` + pendientes.join(", "));
+  }
+
+  function exportarCalendarioNominalA4() {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const nombreMes = meses[month]; const totalDias = getDiasEnMes(year, month); const key = getKey(year, month); const currentMonthAsign = asignaciones[key] || {}; const fechaImpresion = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    let htmlNominal = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Calendario Nominal - ${nombreMes} ${year}</title><style>@page{size:A4 portrait;margin:6mm 10mm;}*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}body{background-color:#ffffff;color:#0f172a;padding:2px;}.print-header{text-align:center;border-bottom:2px solid #1e3a8a;padding-bottom:6px;margin-bottom:8px;}.main-title{font-size:1.3rem;font-weight:900;color:#1e3a8a;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}.sub-title{font-size:1rem;font-weight:800;color:#334155;letter-spacing:0.5px;}table.nominal-table{width:100%;border-collapse:collapse;font-size:0.8rem;text-align:center;}table.nominal-table th,table.nominal-table td{border:1px solid #94a3b8;padding:2px 8px;vertical-align:middle;height:20px;}table.nominal-table th{background-color:#f1f5f9;color:#1e293b;font-weight:bold;font-size:0.85rem;}.col-dia{width:38%;}.col-medico{width:62%;text-align:left;padding-left:14px;font-weight:600;}.bg-finde{background-color:#fee2e2 !important;color:#991b1b !important;}.bg-festivo{background-color:#fef3c7 !important;color:#b45309 !important;}.print-footer-container{display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px;padding:0 4px;font-size:0.75rem;color:#334155;position:relative;}.print-signature{font-weight:700;margin:0 auto;text-align:center;width:100%;}.print-footer-date{font-weight:700;position:absolute;right:0;}.btn-print-floating{position:fixed;top:12px;right:12px;background:#1e3a8a;color:white;border:none;padding:8px 14px;border-radius:6px;font-weight:bold;cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,0.2);}@media print{.btn-print-floating{display:none !important;}body{padding:0;}tr{page-break-inside:avoid;break-inside:avoid;}}</style></head><body><button class="btn-print-floating" onclick="window.print()">🖨️ Imprimir / Guardar en PDF</button><div class="print-header"><div class="main-title">CENTRO DE SALUD DE VILLARRAMIEL</div><div class="sub-title">MES DE ${nombreMes.toUpperCase()} ${year}</div></div><table class="nominal-table"><thead><tr><th class="col-dia">Día</th><th class="col-medico">Médico de Guardia</th></tr></thead><tbody>`;
+    for (let d = 1; d <= totalDias; d++) {
+      const fecha = new Date(year, month, d); const diaSemanaIdx = fecha.getDay(); const nombreDiaSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][diaSemanaIdx]; const esFinDeSemana = diaSemanaIdx === 0 || diaSemanaIdx === 6; const esFest = esDiaFestivo(year, month, d);
+      let cls = ""; if (esFest) cls = "bg-festivo"; else if (esFinDeSemana) cls = "bg-finde";
+      const wIdx = currentMonthAsign[d]; let medicoTexto = "— Sin asignar —"; let styleColor = "#94a3b8";
+      if (wIdx !== undefined && trabajadores[wIdx]) { const nombreMedico = trabajadores[wIdx]; const enPermisoDia = tienePermiso(wIdx, year, month, d); if (enPermisoDia) { medicoTexto = `${nombreMedico} (G / Permiso)`; } else { medicoTexto = nombreMedico; } styleColor = "#0f172a"; }
+      htmlNominal += `<tr><td class="${cls}" style="font-weight: bold;">Día ${d} (${nombreDiaSemana})</td><td class="col-medico" style="color: ${styleColor};">${escapeHtml(medicoTexto)}</td></tr>`;
+    }
+    htmlNominal += `</tbody></table><div class="print-footer-container"><div class="print-signature">Fdo: Juan Manuel Monge Aramburu</div><div class="print-footer-date">${fechaImpresion}</div></div><script>window.onload = function(){setTimeout(function(){window.print();},400);};<\/script></body></html>`;
+    const printWin = window.open("", "_blank"); if (printWin) { printWin.document.open(); printWin.document.write(htmlNominal); printWin.document.close(); }
+  }
+
+  function exportarCalendarioMesA4() {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const nombreMes = meses[month]; const totalDias = getDiasEnMes(year, month); const key = getKey(year, month); const currentMonthAsign = asignaciones[key] || {}; const fechaImpresion = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    let htmlA4 = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Cuadrante - ${nombreMes} ${year}</title><style>@page{size:A4 landscape;margin:8mm 10mm;}*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}body{background-color:#ffffff;color:#0f172a;padding:8px;}.print-header{text-align:center;border-bottom:2px solid #1e3a8a;padding-bottom:12px;margin-bottom:12px;page-break-inside:avoid;break-inside:avoid;}.main-title{font-size:1.65rem;font-weight:900;color:#1e3a8a;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;}.sub-title{font-size:1.65rem;font-weight:900;color:#0f172a;margin-top:6px;margin-bottom:0px;letter-spacing:0.5px;}.header-spacer{height:38px;}.legend{display:flex;justify-content:center;gap:20px;font-size:0.8rem;align-items:center;margin-top:0px;}.legend-item{display:flex;align-items:center;gap:6px;}.box-sample{width:18px;height:18px;border-radius:3px;border:1px solid #cbd5e1;display:inline-block;text-align:center;line-height:17px;font-size:0.75rem;font-weight:900;}.box-guardia{background-color:transparent;color:#0f172a;border-color:#94a3b8;}.box-permiso{background-color:#e0e7ff;color:#3730a3;border-color:#c7d2fe;}.box-festivo{background-color:#fef3c7;color:#b45309;border-color:#fde68a;}.box-finde{background-color:#fee2e2;color:#991b1b;border-color:#fecaca;}table.cal-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:0.75rem;text-align:center;page-break-inside:avoid;break-inside:avoid;}th,td{border:1px solid #94a3b8;height:44px;vertical-align:middle;overflow:hidden;}th{background-color:#f1f5f9;color:#1e293b;font-weight:bold;}th.col-worker,td.col-worker{width:135px;text-align:left;padding-left:6px;font-weight:700;background-color:#f8fafc;}.th-day-num{font-size:0.82rem;}.th-day-name{font-size:0.62rem;font-weight:normal;color:#64748b;}.bg-finde{background-color:#fee2e2 !important;color:#991b1b !important;}.bg-festivo{background-color:#fef3c7 !important;color:#b45309 !important;}.cell-guardia-text{color:#0f172a !important;font-weight:900 !important;font-size:1.05rem;}.cell-permiso-pattern{background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(99, 102, 241, 0.22) 4px,rgba(99, 102, 241, 0.22) 8px) !important;color:#3730a3 !important;font-weight:800;font-size:0.75rem;}.print-footer-container{display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;padding:0 10px;font-size:0.85rem;color:#334155;position:relative;page-break-inside:avoid;break-inside:avoid;}.print-signature{font-weight:700;margin:0 auto;text-align:center;width:100%;}.print-footer-date{font-weight:700;position:absolute;right:10mm;}.btn-print-floating{position:fixed;top:12px;right:12px;background:#1e3a8a;color:white;border:none;padding:8px 14px;border-radius:6px;font-weight:bold;cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,0.2);}@media print{.btn-print-floating{display:none !important;}body{padding:0;}tr{page-break-inside:avoid;break-inside:avoid;}}</style></head><body><button class="btn-print-floating" onclick="window.print()">🖨️ Imprimir / Guardar en PDF</button><div class="print-header"><div class="main-title">CENTRO DE SALUD DE VILLARRAMIEL</div><div class="sub-title">MES DE ${nombreMes.toUpperCase()} ${year}</div><div class="header-spacer"></div><div class="legend"><div class="legend-item"><span class="box-sample box-guardia">G</span> Guardia</div><div class="legend-item"><span class="box-sample box-permiso">P</span> Permisos</div><div class="legend-item"><span class="box-sample box-festivo">F</span> Festivo</div><div class="legend-item"><span class="box-sample box-finde">S/D</span> Fin de Semana</div></div></div><table class="cal-table"><thead><tr><th class="col-worker">Médico</th>`;
+    for (let d = 1; d <= totalDias; d++) {
+      const fecha = new Date(year, month, d); const diaSemanaIdx = fecha.getDay(); const esFinDeSemana = diaSemanaIdx === 0 || diaSemanaIdx === 6; const esFest = esDiaFestivo(year, month, d);
+      let cls = ""; if (esFest) cls = "bg-festivo"; else if (esFinDeSemana) cls = "bg-finde";
+      htmlA4 += `<th class="${cls}"><div class="th-day-num">${d}</div><div class="th-day-name">${diasSemanaMap[diaSemanaIdx]}</div></th>`;
+    }
+    htmlA4 += `</tr></thead><tbody>`;
+    trabajadores.forEach((nombre, wIdx) => {
+      htmlA4 += `<tr><td class="col-worker">${escapeHtml(nombre)}</td>`;
+      for (let d = 1; d <= totalDias; d++) {
+        const fecha = new Date(year, month, d); const diaSemanaIdx = fecha.getDay(); const esFinDeSemana = diaSemanaIdx === 0 || diaSemanaIdx === 6; const esFest = esDiaFestivo(year, month, d);
+        const estaAsignado = currentMonthAsign[d] === wIdx; const estaEnPermiso = tienePermiso(wIdx, year, month, d);
+        let classes = []; if (esFest) classes.push("bg-festivo"); else if (esFinDeSemana) classes.push("bg-finde");
+        if (estaEnPermiso && !estaAsignado) classes.push("cell-permiso-pattern"); else if (estaAsignado) classes.push("cell-guardia-text");
+        let cellText = ""; if (estaAsignado && estaEnPermiso) cellText = "G / P"; else if (estaAsignado) cellText = "G"; else if (estaEnPermiso) cellText = "P";
+        htmlA4 += `<td class="${classes.join(' ')}">${cellText}</td>`;
+      }
+      htmlA4 += `</tr>`;
+    });
+    htmlA4 += `</tbody></table><div class="print-footer-container"><div class="print-signature">Fdo: Juan Manuel Monge Aramburu</div><div class="print-footer-date">${fechaImpresion}</div></div><script>window.onload = function(){setTimeout(function(){window.print();},400);};<\/script></body></html>`;
+    const printWin = window.open("", "_blank"); if (printWin) { printWin.document.open(); printWin.document.write(htmlA4); printWin.document.close(); }
+  }
+
+  function render() {
+    const year = parseInt(yearSelect.value); const month = parseInt(monthSelect.value); const totalDias = getDiasEnMes(year, month); const key = getKey(year, month); const currentMonthAsign = asignaciones[key] || {};
+    btnAssignAuto.textContent = `⚡ Asignar Turnos (${year})`;
+    const pendientes = _calcularDiasPendientes();
+    if (pendientes.length === 0) { btnPendingDays.textContent = `✅ Mes Completo (0 pendientes)`; btnPendingDays.className = "btn-pending completed"; } else { btnPendingDays.textContent = `⏳ Quedan por asignar: ${pendientes.length} día${pendientes.length > 1 ? 's' : ''}`; btnPendingDays.className = "btn-pending"; }
+    document.getElementById("report-month-title").textContent = `Desglose Semanal y Festivos - ${meses[month]} ${year}`; document.getElementById("report-year-title").textContent = `Acumulado Anual Completo (${year})`;
+
+    const headerFragment = document.createDocumentFragment(); const thWorker = document.createElement("th"); thWorker.className = "col-worker"; thWorker.textContent = "Médico"; headerFragment.appendChild(thWorker);
+    for (let d = 1; d <= totalDias; d++) {
+      const fecha = new Date(year, month, d); const diaSemanaIdx = fecha.getDay(); const esFinDeSemana = diaSemanaIdx === 0 || diaSemanaIdx === 6; const esFest = esDiaFestivo(year, month, d);
+      const th = document.createElement("th"); th.className = "th-day-header";
+      if (esFest) th.classList.add("holiday"); else if (esFinDeSemana) th.classList.add("weekend");
+      th.innerHTML = `${d}<span class="weekday">${diasSemanaMap[diaSemanaIdx]}</span>`; th.onclick = () => toggleFestivoDia(d); headerFragment.appendChild(th);
+    }
+    headerRow.innerHTML = ""; headerRow.appendChild(headerFragment);
+
+    const bodyFragment = document.createDocumentFragment();
+    trabajadores.forEach((nombre, wIdx) => {
+      const tr = document.createElement("tr"); const tdNombre = document.createElement("td"); tdNombre.className = "col-worker"; const nombreSeguro = escapeHtml(nombre);
+      tdNombre.innerHTML = `<div class="worker-name-container"><span class="worker-name-text" title="Doble clic para editar" ondblclick="editarTrabajador(${wIdx})">${nombreSeguro}</span><div class="worker-actions"><button class="btn-worker-action btn-worker-edit" title="Editar nombre" onclick="editarTrabajador(${wIdx})">✏️</button><button class="btn-worker-action" title="Subir" onclick="moverTrabajador(${wIdx}, -1)">▲</button><button class="btn-worker-action" title="Bajar" onclick="moverTrabajador(${wIdx}, 1)">▼</button><button class="btn-worker-action btn-delete-worker" title="Eliminar" onclick="eliminarTrabajador(${wIdx})">&times;</button></div></div>`;
+      tr.appendChild(tdNombre);
+      for (let d = 1; d <= totalDias; d++) {
+        const td = document.createElement("td"); const fecha = new Date(year, month, d); const diaSemanaIdx = fecha.getDay(); const esFinDeSemana = diaSemanaIdx === 0 || diaSemanaIdx === 6; const esFest = esDiaFestivo(year, month, d);
+        if (esFest) td.classList.add("holiday-cell"); else if (esFinDeSemana) td.classList.add("weekend");
+        const estaAsignado = currentMonthAsign[d] === wIdx; const estaEnPermiso = tienePermiso(wIdx, year, month, d);
+        const btn = document.createElement("button"); let clases = "cell-btn"; let contenido = "";
+        if (estaAsignado && estaEnPermiso) { clases += " is-both"; contenido = "G / P"; } else if (estaAsignado) { clases += " active"; contenido = "G"; } else if (estaEnPermiso) { clases += " is-permission"; contenido = "P"; }
+        btn.className = clases; btn.textContent = contenido; btn.onclick = () => handleCellClick(wIdx, d); td.appendChild(btn); tr.appendChild(td);
+      }
+      bodyFragment.appendChild(tr);
+    });
+    scheduleBody.innerHTML = ""; scheduleBody.appendChild(bodyFragment);
+    _renderInformes(year, month);
+  }
+
+  function _renderInformes(year, month) {
+    const totalDias = getDiasEnMes(year, month); const key = getKey(year, month); const currentMonthAsign = asignaciones[key] || {};
+    const statsMes = trabajadores.map(() => ({ L: 0, M: 0, X: 0, J: 0, V: 0, S: 0, D: 0, festivos: 0, total: 0 })); const totColsMes = { L: 0, M: 0, X: 0, J: 0, V: 0, S: 0, D: 0, festivos: 0, total: 0 };
+    for (let d = 1; d <= totalDias; d++) {
+      const wIdx = currentMonthAsign[d];
+      if (wIdx !== undefined && statsMes[wIdx]) {
+        const dSem = diasSemanaMap[new Date(year, month, d).getDay()]; const esFest = esDiaFestivo(year, month, d);
+        statsMes[wIdx][dSem]++; statsMes[wIdx].total++; totColsMes[dSem]++; totColsMes.total++;
+        if (esFest) { statsMes[wIdx].festivos++; totColsMes.festivos++; }
+      }
+    }
+    const monthlyFragment = document.createDocumentFragment();
+    trabajadores.forEach((nombre, wIdx) => {
+      const s = statsMes[wIdx]; const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="td-worker">${escapeHtml(nombre)}</td><td>${s.L}</td><td>${s.M}</td><td>${s.X}</td><td>${s.J}</td><td>${s.V}</td><td class="highlight-weekend">${s.S}</td><td class="highlight-weekend">${s.D}</td><td class="highlight-holiday">${s.festivos}</td><td class="highlight-total">${s.total}</td>`;
+      monthlyFragment.appendChild(tr);
+    });
+    monthlyReportBody.innerHTML = ""; monthlyReportBody.appendChild(monthlyFragment);
+    monthlyReportFooter.innerHTML = `<tr><td class="td-worker">TOTAL GUARDIA</td><td>${totColsMes.L}</td><td>${totColsMes.M}</td><td>${totColsMes.X}</td><td>${totColsMes.J}</td><td>${totColsMes.V}</td><td class="highlight-weekend">${totColsMes.S}</td><td class="highlight-weekend">${totColsMes.D}</td><td class="highlight-holiday">${totColsMes.festivos}</td><td class="highlight-total">${totColsMes.total}</td></tr>`;
+
+    const statsAno = trabajadores.map(() => ({ L: 0, M: 0, X: 0, J: 0, V: 0, S: 0, D: 0, festivos: 0, total: 0, horasTotales: 0 })); const totColsAno = { L: 0, M: 0, X: 0, J: 0, V: 0, S: 0, D: 0, festivos: 0, total: 0 };
+    for (let m = 0; m < 12; m++) {
+      const mKey = getKey(year, m); const mesData = asignaciones[mKey] || {}; const diasMes = getDiasEnMes(year, m);
+      for (let d = 1; d <= diasMes; d++) {
+        const wIdx = mesData[d];
+        if (wIdx !== undefined && statsAno[wIdx]) {
+          const fechaDia = new Date(year, m, d); const dSem = diasSemanaMap[fechaDia.getDay()]; const esFinde = (fechaDia.getDay() === 0 || fechaDia.getDay() === 6); const esFest = esDiaFestivo(year, m, d);
+          statsAno[wIdx][dSem]++; statsAno[wIdx].total++; totColsAno[dSem]++; totColsAno.total++;
+          if (esFest) { statsAno[wIdx].festivos++; totColsAno.festivos++; }
+          statsAno[wIdx].horasTotales += (esFinde || esFest) ? 24 : 17;
+        }
+      }
+    }
+    const annualFragment = document.createDocumentFragment();
+    trabajadores.forEach((nombre, wIdx) => {
+      const s = statsAno[wIdx]; const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="td-worker">${escapeHtml(nombre)}</td><td>${s.L}</td><td>${s.M}</td><td>${s.X}</td><td>${s.J}</td><td>${s.V}</td><td class="highlight-weekend">${s.S}</td><td class="highlight-weekend">${s.D}</td><td class="highlight-holiday">${s.festivos}</td><td class="highlight-total">${s.total} (${s.horasTotales}h)</td>`;
+      annualFragment.appendChild(tr);
+    });
+    annualReportBody.innerHTML = ""; annualReportBody.appendChild(annualFragment);
+    annualReportFooter.innerHTML = `<tr><td class="td-worker">TOTAL GUARDIA</td><td>${totColsAno.L}</td><td>${totColsAno.M}</td>      <td>${totColsAno.X}</td><td>${totColsAno.J}</td><td>${totColsAno.V}</td><td class="highlight-weekend">${totColsAno.S}</td><td class="highlight-weekend">${totColsAno.D}</td><td class="highlight-holiday">${totColsAno.festivos}</td><td class="highlight-total">${totColsAno.total}</td></tr>`;
+  }
+
+  window.restaurarDesdeJsonbin = restaurarDesdeJsonbin;
+  window.guardarConfigVisor = guardarConfigVisor;
+  window.sincronizarDesdeNube = sincronizarDesdeNube;
+  window.cargarFestivos = cargarFestivos;
+  window.toggleModoFestivos = toggleModoFestivos;
+  window.toggleModoPermisos = toggleModoPermisos;
+  window.asignarTurnosAutomaticos = asignarTurnosAutomaticos;
+  window.exportarCalendarioMesA4 = exportarCalendarioMesA4;
+  window.exportarCalendarioNominalA4 = exportarCalendarioNominalA4;
+  window.descargarCopiaJSON = descargarCopiaJSON;
+  window.triggerRecuperar = triggerRecuperar;
+  window.agregarTrabajador = agregarTrabajador;
+  window.mostrarDiasPendientes = mostrarDiasPendientes;
+  window.editarTrabajador = editarTrabajador;
+  window.moverTrabajador = moverTrabajador;
+  window.eliminarTrabajador = eliminarTrabajador;
+  window.toggleFestivoDia = toggleFestivoDia;
+  window.handleCellClick = handleCellClick;
+
+  init();
+</script>
+</body>
+</html>
