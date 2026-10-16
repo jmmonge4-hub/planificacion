@@ -1,10 +1,11 @@
-# Despliega Hosting en planificacion-1818-e8523 en cada push a main.
-# Los datos siguen en el Firestore de padel-gestor (configurado en public/index.html).
+# Despliega Hosting en el sitio planificacion-1818-e8523 (proyecto Firebase padel-gestor)
+# en cada push a main. El sitio se indica en firebase.json.
 name: Deploy to Firebase on merge
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -20,4 +21,4 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANIFICACION }}
           channelId: live
-          projectId: planificacion-1818-e8523
+          projectId: padel-gestor
