@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "planificacion-1818-e8523",
     "public": "public",
     "ignore": [
       "firebase.json",
