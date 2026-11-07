@@ -90,6 +90,17 @@
   </style>
 </head>
 <body>
+<div id="pantalla-pin" style="position:fixed;inset:0;background:#f1f5f9;display:flex;align-items:center;justify-content:center;z-index:5000;padding:16px;">
+  <form id="form-pin" style="background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);padding:24px;max-width:340px;width:100%;text-align:center;font-family:inherit;">
+    <div style="font-size:2rem;">🗓️</div>
+    <h2 style="margin:6px 0 4px;color:#1e3a8a;">Planificación de Médicos</h2>
+    <p style="margin:0 0 14px;color:#475569;font-size:0.9rem;">Introduce tu PIN para entrar</p>
+    <input id="input-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="width:100%;font-size:1.3rem;text-align:center;padding:10px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+    <div id="error-pin" style="color:#b91c1c;font-size:0.85rem;min-height:1.2em;margin:8px 0;"></div>
+    <button type="submit" style="width:100%;background:#1e3a8a;color:#fff;border:none;padding:10px;border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;">Entrar</button>
+    <p style="margin:14px 0 0;font-size:0.8rem;color:#64748b;">También puedes entrar desde el <a href="https://portal-medicos-villarramiel.web.app/">portal del centro</a>.</p>
+  </form>
+</div>
 
 <div class="container">
   <header>
@@ -205,6 +216,31 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const documentRef = doc(db, "villarramiel", "turnos_guardias");
+
+  // ===== Entrada con PIN: solo 0459 o un PIN personal con rol Supervisor (los mismos que entran en el portal) =====
+  (function(){
+    const pantalla = document.getElementById("pantalla-pin");
+    let ok = false; try { ok = sessionStorage.getItem("planif_ok") === "1"; } catch(e) {}
+    if (ok) { pantalla.remove(); return; }
+    const input = document.getElementById("input-pin"), err = document.getElementById("error-pin");
+    setTimeout(() => input.focus(), 50);
+    document.getElementById("form-pin").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const pin = input.value.trim(); err.textContent = "";
+      if (!pin) return;
+      let valido = pin === "0459";
+      if (!valido) {
+        try {
+          const snap = await getDoc(doc(db, "villarramiel", "contrasenas_personas"));
+          const lista = (snap.exists() && Array.isArray(snap.data().lista)) ? snap.data().lista : [];
+          valido = lista.some(p => p && String(p.pin || "") === pin && p.rol === "supervisor");
+        } catch(e) { err.textContent = "No se pudo comprobar el PIN. Revisa la conexión."; return; }
+      }
+      if (!valido) { err.textContent = "PIN incorrecto"; input.value = ""; input.focus(); return; }
+      try { sessionStorage.setItem("planif_ok", "1"); } catch(e) {}
+      pantalla.remove();
+    });
+  })();
 
   const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   const diasSemanaMap = ["D", "L", "M", "X", "J", "V", "S"];
